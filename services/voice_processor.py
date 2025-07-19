@@ -15,6 +15,7 @@ from utils.progress_tracker import (
     TelegramProgressTracker, 
     ProcessingStep
 )
+from services.text_processor import text_processor
 
 
 logger = structlog.get_logger()
@@ -172,7 +173,31 @@ class VoiceProcessor:
                         f"Речь расшифрована ({len(transcription_result['text'])} символов)"
                     )
                     
-                    # Step 5: Processing completed
+                    # Step 5: Clean text with GPT
+                    await progress.start_step(
+                        ProcessingStep.CLEANING,
+                        "Очищаю и структурирую текст..."
+                    )
+                    
+                    # Clean the transcribed text using GPT
+                    text_cleaning_result = await text_processor.clean_transcribed_text(
+                        transcription_result["text"],
+                        progress
+                    )
+                    
+                    if text_cleaning_result.success:
+                        final_text = text_cleaning_result.cleaned_text
+                        await progress.complete_step(
+                            ProcessingStep.CLEANING,
+                            f"Текст очищен ({len(final_text)} символов)"
+                        )
+                    else:
+                        # Use original text if cleaning fails
+                        final_text = transcription_result["text"]
+                        logger.warning("Text cleaning failed, using original", 
+                                     error=text_cleaning_result.error_message)
+                    
+                    # Step 6: Processing completed
                     processing_time = time.time() - start_time
                     
                     await progress.complete_step(
@@ -183,7 +208,7 @@ class VoiceProcessor:
                     # Create result
                     result = VoiceProcessingResult(
                         success=True,
-                        transcribed_text=transcription_result["text"],
+                        transcribed_text=final_text,
                         original_language=transcription_result.get("language", language),
                         processing_time=processing_time,
                         file_size=file_size,
@@ -192,7 +217,11 @@ class VoiceProcessor:
                             "whisper_model": transcription_result.get("model"),
                             "fallback_used": transcription_result.get("fallback_used", False),
                             "auto_detected": transcription_result.get("auto_detected", False),
-                            "quality_valid": is_valid_transcription
+                            "quality_valid": is_valid_transcription,
+                            "raw_transcription": transcription_result["text"],
+                            "text_cleaned": text_cleaning_result.success if text_cleaning_result else False,
+                            "gpt_tokens_used": text_cleaning_result.tokens_used if text_cleaning_result and text_cleaning_result.success else 0,
+                            "gpt_cost": text_cleaning_result.estimated_cost if text_cleaning_result and text_cleaning_result.success else 0.0
                         }
                     )
                     
