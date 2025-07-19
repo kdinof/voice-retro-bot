@@ -10,6 +10,7 @@ from telegram.error import TelegramError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
+from services.voice_processor import voice_processor
 
 
 logger = structlog.get_logger()
@@ -168,33 +169,106 @@ class TelegramService:
         """Handle voice messages."""
         message = update.message
         chat_id = message.chat_id
+        user_id = message.from_user.id
+        voice = message.voice
         
-        # Send processing message
-        processing_msg_id = await self.send_message_with_retry(
+        logger.info(
+            "Processing voice message",
+            user_id=user_id,
+            chat_id=chat_id,
+            file_id=voice.file_id,
+            duration=voice.duration,
+            file_size=voice.file_size
+        )
+        
+        # Send initial processing message
+        processing_msg = await self.send_message_with_retry(
             chat_id=chat_id,
             text="🎤 Обрабатываю голосовое сообщение..."
         )
         
         try:
-            # TODO: Implement voice processing pipeline
-            await asyncio.sleep(2)  # Placeholder for actual processing
-            
-            # Update message with completion
-            await self.edit_message_text_safe(
+            # Process voice message
+            result = await voice_processor.process_telegram_voice(
+                bot=self.bot,
+                file_id=voice.file_id,
                 chat_id=chat_id,
-                message_id=processing_msg_id,
-                text="✅ Голосовое сообщение обработано!\n\n"
-                     "Это функция будет реализована в следующей фазе."
+                progress_message_id=processing_msg,
+                language="ru"
             )
+            
+            if result.success:
+                # Create response message with transcription
+                response_text = self._format_transcription_response(result)
+                
+                # Send transcription result
+                await self.send_message_with_retry(
+                    chat_id=chat_id,
+                    text=response_text,
+                    parse_mode="Markdown"
+                )
+                
+                # TODO: Integrate with conversation flow to process transcribed text
+                # For now, just acknowledge the transcription
+                await self.send_message_with_retry(
+                    chat_id=chat_id,
+                    text="📝 Текст получен! Интеграция с ретроспективой будет добавлена в следующей фазе."
+                )
+                
+            else:
+                # Voice processing failed
+                await self.send_message_with_retry(
+                    chat_id=chat_id,
+                    text=f"❌ {result.error_message}\n\n"
+                         "Попробуйте еще раз или отправьте сообщение текстом."
+                )
             
         except Exception as e:
-            logger.error("Error processing voice message", error=str(e))
+            logger.error("Unexpected error processing voice message", error=str(e), exc_info=True)
+            
+            # Update processing message with error
             await self.edit_message_text_safe(
                 chat_id=chat_id,
-                message_id=processing_msg_id,
-                text="❌ Ошибка при обработке голосового сообщения. "
+                message_id=processing_msg,
+                text="❌ Произошла ошибка при обработке голосового сообщения. "
                      "Попробуйте еще раз или отправьте текстом."
             )
+    
+    def _format_transcription_response(self, result) -> str:
+        """Format transcription result for user."""
+        lines = ["✅ **Голосовое сообщение обработано**", ""]
+        
+        # Add transcribed text
+        lines.append("📝 **Расшифровка:**")
+        lines.append(f"_{result.transcribed_text}_")
+        lines.append("")
+        
+        # Add metadata
+        metadata_lines = []
+        
+        if result.original_language:
+            lang_name = {"ru": "Русский", "en": "English"}.get(
+                result.original_language, result.original_language
+            )
+            metadata_lines.append(f"🌐 Язык: {lang_name}")
+        
+        if result.processing_time:
+            metadata_lines.append(f"⏱️ Время обработки: {result.processing_time:.1f}с")
+        
+        if result.metadata.get("duration"):
+            metadata_lines.append(f"🎵 Длительность: {result.metadata['duration']:.1f}с")
+        
+        if result.metadata.get("fallback_used"):
+            metadata_lines.append("🔄 Использован резервный язык")
+        
+        if result.metadata.get("auto_detected"):
+            metadata_lines.append("🤖 Автоопределение языка")
+        
+        if metadata_lines:
+            lines.append("ℹ️ **Информация:**")
+            lines.extend(metadata_lines)
+        
+        return "\n".join(lines)
     
     async def _handle_callback_query(self, update: Update):
         """Handle callback queries from inline keyboards."""
