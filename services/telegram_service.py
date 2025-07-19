@@ -22,6 +22,7 @@ class TelegramService:
     def __init__(self):
         self.bot = Bot(token=settings.bot_token)
         self._webhook_configured = False
+        self.conversation_manager = None  # Will be set after initialization
     
     async def setup_webhook(self) -> bool:
         """Set up Telegram webhook."""
@@ -158,12 +159,21 @@ class TelegramService:
             await self._handle_retro_command(update)
         elif text.startswith('/help'):
             await self._handle_help_command(update)
+        elif text.startswith('/stop'):
+            await self._handle_stop_command(update)
         else:
-            # TODO: Handle conversation flow based on current state
-            await self.send_message_with_retry(
-                chat_id=chat_id,
-                text="Для начала ретроспективы отправьте /retro или /start"
-            )
+            # Handle conversation flow
+            if self.conversation_manager:
+                await self.conversation_manager.handle_user_response(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    message_text=text
+                )
+            else:
+                await self.send_message_with_retry(
+                    chat_id=chat_id,
+                    text="Для начала ретроспективы отправьте /retro или /start"
+                )
     
     async def _handle_voice_message(self, update: Update):
         """Handle voice messages."""
@@ -208,12 +218,20 @@ class TelegramService:
                     parse_mode="Markdown"
                 )
                 
-                # TODO: Integrate with conversation flow to process transcribed text
-                # For now, just acknowledge the transcription
-                await self.send_message_with_retry(
-                    chat_id=chat_id,
-                    text="📝 Текст получен! Интеграция с ретроспективой будет добавлена в следующей фазе."
-                )
+                # Integrate with conversation flow
+                if self.conversation_manager:
+                    # Don't send transcription result, let conversation manager handle it
+                    await self.conversation_manager.handle_user_response(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        voice_file_id=voice.file_id
+                    )
+                else:
+                    # Fallback: just show transcription
+                    await self.send_message_with_retry(
+                        chat_id=chat_id,
+                        text="📝 Текст получен! Для начала ретроспективы используй /retro"
+                    )
                 
             else:
                 # Voice processing failed
@@ -275,8 +293,32 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # TODO: Implement callback handling for retro flow
-        logger.info("Callback query received", data=query.data)
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        data = query.data
+        
+        if self.conversation_manager:
+            # Handle conversation-related callbacks
+            if data == "start_retro":
+                await self.conversation_manager.start_retro_conversation(user_id, chat_id)
+            elif data == "skip_step":
+                await self.conversation_manager.handle_user_response(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    message_text="пропустить"
+                )
+            elif data == "complete_retro":
+                await self.conversation_manager._complete_retro(user_id, chat_id)
+            elif data.startswith("show_retro_"):
+                # Handle show retro callback
+                await self.send_message_with_retry(
+                    chat_id=chat_id,
+                    text="📄 Функция просмотра ретроспектив будет добавлена позже."
+                )
+            else:
+                logger.info("Unknown callback query", data=data)
+        else:
+            logger.info("Callback query received but conversation manager not available", data=data)
     
     async def _handle_start_command(self, update: Update):
         """Handle /start command."""
@@ -314,14 +356,15 @@ class TelegramService:
     async def _handle_retro_command(self, update: Update):
         """Handle /retro command."""
         chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
         
-        # TODO: Start retro conversation flow
-        await self.send_message_with_retry(
-            chat_id=chat_id,
-            text="🎯 Начинаем ретроспективу!\n\n"
-                 "Функция conversation flow будет реализована в Phase 2.\n"
-                 "Пока что это базовая заглушка."
-        )
+        if self.conversation_manager:
+            await self.conversation_manager.start_retro_conversation(user_id, chat_id)
+        else:
+            await self.send_message_with_retry(
+                chat_id=chat_id,
+                text="🎯 Ретроспектива временно недоступна. Попробуй позже."
+            )
     
     async def _handle_help_command(self, update: Update):
         """Handle /help command."""
@@ -350,3 +393,16 @@ class TelegramService:
             chat_id=chat_id,
             text=help_text
         )
+    
+    async def _handle_stop_command(self, update: Update):
+        """Handle /stop command."""
+        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+        
+        if self.conversation_manager:
+            await self.conversation_manager.stop_conversation(user_id, chat_id)
+        else:
+            await self.send_message_with_retry(
+                chat_id=chat_id,
+                text="ℹ️ Нет активной ретроспективы для остановки."
+            )

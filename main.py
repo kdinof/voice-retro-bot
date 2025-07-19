@@ -57,6 +57,11 @@ async def lifespan(app: FastAPI):
     telegram_service = TelegramService()
     app.state.telegram_service = telegram_service
     
+    # Initialize conversation manager after database is ready
+    from services.conversation_manager import ConversationManager
+    conversation_manager = ConversationManager(database_service, telegram_service)
+    telegram_service.conversation_manager = conversation_manager
+    
     # Set up webhook if URL is provided
     if settings.telegram_webhook_url:
         await telegram_service.setup_webhook()
