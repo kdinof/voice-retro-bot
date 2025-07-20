@@ -50,35 +50,31 @@ class Retro(Base):
         nullable=True
     )
     
-    # Retrospective content (stored as JSON arrays for flexibility)
-    wins: Mapped[Optional[List[str]]] = mapped_column(
-        JSON,
-        nullable=True,
-        default=list
+    # Retrospective content (stored as raw text)
+    wins_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
     )
     
-    learnings: Mapped[Optional[List[str]]] = mapped_column(
-        JSON,
-        nullable=True,
-        default=list
+    learnings_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
     )
     
-    next_actions: Mapped[Optional[List[str]]] = mapped_column(
-        JSON,
-        nullable=True,
-        default=list
+    next_actions_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
     )
     
-    mits: Mapped[Optional[List[str]]] = mapped_column(
-        JSON,
-        nullable=True,
-        default=list
+    mits_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
     )  # Most Important Tasks
     
-    experiment: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSON,
+    experiment_text: Mapped[Optional[str]] = mapped_column(
+        Text,
         nullable=True
-    )  # Flexible experiment data
+    )  # Experiment description
     
     # Metadata
     completed_at: Mapped[Optional[datetime]] = mapped_column(
@@ -120,13 +116,13 @@ class Retro(Base):
             filled_fields += 1
         if self.mood:
             filled_fields += 1
-        if self.wins:
+        if self.wins_text:
             filled_fields += 1
-        if self.learnings:
+        if self.learnings_text:
             filled_fields += 1
-        if self.next_actions:
+        if self.next_actions_text:
             filled_fields += 1
-        if self.mits:
+        if self.mits_text:
             filled_fields += 1
             
         return (filled_fields / total_fields) * 100
@@ -159,17 +155,16 @@ class Retro(Base):
         
         # Sections
         sections = [
-            ("🏆 Wins", self.wins),
-            ("📚 Learnings", self.learnings),
-            ("🎯 Next Actions", self.next_actions),
-            ("⭐ Tomorrow's MITs", self.mits)
+            ("🏆 Wins", self.wins_text),
+            ("📚 Learnings", self.learnings_text),
+            ("🎯 Next Actions", self.next_actions_text),
+            ("⭐ Tomorrow's MITs", self.mits_text)
         ]
         
-        for title, items in sections:
-            if items:
+        for title, text_content in sections:
+            if text_content:
                 lines.append(f"## {title}")
-                for item in items:
-                    lines.append(f"- {item}")
+                lines.append(text_content)
                 lines.append("")
             elif not self.completed_at:
                 # Show missing sections for incomplete retrospectives
@@ -178,13 +173,9 @@ class Retro(Base):
                 lines.append("")
         
         # Experiment
-        if self.experiment:
+        if self.experiment_text:
             lines.append("## 🧪 Experiment")
-            if isinstance(self.experiment, dict):
-                for key, value in self.experiment.items():
-                    lines.append(f"**{key}:** {value}")
-            else:
-                lines.append(str(self.experiment))
+            lines.append(self.experiment_text)
             lines.append("")
         elif not self.completed_at:
             lines.append("## 🧪 Experiment")

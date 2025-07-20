@@ -16,7 +16,6 @@ from utils.progress_tracker import (
     TelegramProgressTracker, 
     ProcessingStep
 )
-from services.text_processor import text_processor
 
 
 logger = structlog.get_logger()

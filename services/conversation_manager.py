@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict, Any, Tuple
+from enum import Enum
 
 import structlog
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,11 +12,21 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from models.conversation_state import ConversationState, RetroStep
 from services.database_service import DatabaseService
 from services.voice_processor import voice_processor
-from services.text_processor import text_processor, RetroFieldType
 from services.telegram_service import TelegramService
 
 
 logger = structlog.get_logger()
+
+
+class RetroFieldType(str, Enum):
+    """Types of retrospective fields for simplified processing."""
+    ENERGY = "energy"
+    MOOD = "mood"
+    WINS = "wins"
+    LEARNINGS = "learnings"
+    NEXT_ACTIONS = "next_actions"
+    MITS = "mits"
+    EXPERIMENT = "experiment"
 
 
 class ConversationFlowError(Exception):
@@ -380,79 +391,83 @@ class ConversationManager:
             
             field_type = step_config["field_type"]
             
-            # Process input with GPT
-            logger.info("Processing retro field", user_id=user_id, field_type=field_type, input_preview=user_input[:100] + "..." if len(user_input) > 100 else user_input)
+            # Save raw input directly (no AI processing)
+            logger.info("Saving raw text input", user_id=user_id, field_type=field_type, input_length=len(user_input))
             
-            processing_result = await text_processor.process_retro_field(
-                field_type=field_type,
-                user_input=user_input
+            # Clean and save user input
+            cleaned_input = user_input.strip()
+            await self._save_raw_text(repos, state.current_retro_id, field_type, cleaned_input)
+            
+            # Show simple confirmation
+            await self.telegram.send_message_with_retry(
+                chat_id=chat_id,
+                text="✅ **Ответ сохранен**\n\n_Переходим к следующему шагу..._",
+                parse_mode="Markdown"
             )
             
-            logger.info("Text processing result", user_id=user_id, success=processing_result.success, 
-                       error=processing_result.error_message if not processing_result.success else None,
-                       data_keys=list(processing_result.processed_data.keys()) if processing_result.success else None)
-            
-            if processing_result.success:
-                # Save processed data to retro
-                await self._save_field_data(repos, state.current_retro_id, field_type, processing_result.processed_data)
-                
-                # Show confirmation
-                summary = text_processor.get_field_summary(processing_result, field_type)
-                logger.info("Generated field summary", user_id=user_id, field_type=field_type, summary=summary)
-                
-                await self.telegram.send_message_with_retry(
-                    chat_id=chat_id,
-                    text=f"✅ {summary}\n\n_Переходим к следующему шагу..._",
-                    parse_mode="Markdown"
-                )
-                
-                # Move to next step
-                await self._advance_conversation_step(user_id, chat_id, state, repos)
-            
-            else:
-                await self.telegram.send_message_with_retry(
-                    chat_id=chat_id,
-                    text=f"⚠️ Не удалось обработать ответ: {processing_result.error_message}\n\n"
-                         "Попробуй ответить по-другому."
-                )
+            # Move to next step
+            await self._advance_conversation_step(user_id, chat_id, state, repos)
     
-    async def _save_field_data(self, repos, retro_id: int, field_type: RetroFieldType, processed_data: Dict[str, Any]):
-        """Save processed field data to retro."""
-        logger.info("Saving field data", retro_id=retro_id, field_type=field_type, data_keys=list(processed_data.keys()))
+    async def _save_raw_text(self, repos, retro_id: int, field_type: RetroFieldType, user_text: str):
+        """Save raw user text to retro fields."""
+        logger.info("Saving raw text", retro_id=retro_id, field_type=field_type, text_length=len(user_text))
         
         if field_type == RetroFieldType.ENERGY:
-            energy_data = processed_data.get("energy_data", {})
-            await repos.retros.update_retro_field(retro_id, "energy_level", energy_data.get("energy_level"))
-            if energy_data.get("explanation"):
-                await repos.retros.set_temp_data(retro_id, "energy_explanation", energy_data["explanation"])
+            # Try to extract number for energy level, save full text as explanation
+            energy_level = self._extract_energy_level(user_text)
+            await repos.retros.update_retro_field(retro_id, "energy_level", energy_level)
+            await repos.retros.update_retro_field(retro_id, "mood_explanation", user_text)
         
         elif field_type == RetroFieldType.MOOD:
-            mood_data = processed_data.get("mood_data", {})
-            await repos.retros.update_retro_field(retro_id, "mood", mood_data.get("mood_emoji"))
-            await repos.retros.update_retro_field(retro_id, "mood_explanation", mood_data.get("mood_explanation"))
+            # Save as mood explanation, try to extract emoji/mood word
+            mood_emoji = self._extract_mood_emoji(user_text)
+            await repos.retros.update_retro_field(retro_id, "mood", mood_emoji)
+            await repos.retros.update_retro_field(retro_id, "mood_explanation", user_text)
         
         elif field_type == RetroFieldType.WINS:
-            wins_list = processed_data.get("wins_list", [])
-            await repos.retros.update_retro_field(retro_id, "wins", wins_list)
+            await repos.retros.update_retro_field(retro_id, "wins_text", user_text)
         
         elif field_type == RetroFieldType.LEARNINGS:
-            learnings_list = processed_data.get("learnings_list", [])
-            await repos.retros.update_retro_field(retro_id, "learnings", learnings_list)
+            await repos.retros.update_retro_field(retro_id, "learnings_text", user_text)
         
         elif field_type == RetroFieldType.NEXT_ACTIONS:
-            actions_list = processed_data.get("next_actions_list", [])
-            await repos.retros.update_retro_field(retro_id, "next_actions", actions_list)
+            await repos.retros.update_retro_field(retro_id, "next_actions_text", user_text)
         
         elif field_type == RetroFieldType.MITS:
-            mits_list = processed_data.get("mits_list", [])
-            await repos.retros.update_retro_field(retro_id, "mits", mits_list)
+            await repos.retros.update_retro_field(retro_id, "mits_text", user_text)
         
         elif field_type == RetroFieldType.EXPERIMENT:
-            experiment_data = processed_data.get("experiment_data", {})
-            await repos.retros.update_retro_field(retro_id, "experiment", experiment_data)
+            await repos.retros.update_retro_field(retro_id, "experiment_text", user_text)
         
         await repos.commit()
-        logger.info("Committed retro field data to database", retro_id=retro_id, field_type=field_type)
+        logger.info("Committed raw text to database", retro_id=retro_id, field_type=field_type)
+    
+    def _extract_energy_level(self, text: str) -> Optional[int]:
+        """Extract energy level (1-5) from text."""
+        import re
+        # Look for numbers 1-5 in the text
+        numbers = re.findall(r'\b([1-5])\b', text)
+        return int(numbers[0]) if numbers else None
+    
+    def _extract_mood_emoji(self, text: str) -> str:
+        """Extract mood emoji or default emoji from text."""
+        import re
+        # Look for emojis in text
+        emoji_pattern = r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]'
+        emojis = re.findall(emoji_pattern, text)
+        if emojis:
+            return emojis[0]
+        
+        # Look for mood words and map to emojis
+        text_lower = text.lower()
+        if any(word in text_lower for word in ['хорошо', 'отлично', 'прекрасно', 'позитивно']):
+            return '😊'
+        elif any(word in text_lower for word in ['плохо', 'грустно', 'ужасно']):
+            return '😢'
+        elif any(word in text_lower for word in ['нормально', 'средне', 'неплохо']):
+            return '😐'
+        else:
+            return '😊'  # Default positive
     
     async def _advance_conversation_step(self, user_id: int, chat_id: int, state: ConversationState, repos=None):
         """Advance to next conversation step."""
