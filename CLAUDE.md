@@ -4,24 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Telegram Bot for Daily Retrospectives** that uses voice transcription to guide users through structured daily reflection sessions. The project is currently in the **planning phase** with comprehensive documentation but no implementation code yet.
+This is a **Telegram Bot for Daily Retrospectives** that uses voice transcription to guide users through structured daily reflection sessions. The project is **fully implemented** with a simplified, cost-effective architecture that preserves authentic user voice.
 
-## Technology Stack (Planned)
+## Technology Stack
 
-- **Language**: Python 3.13+
+- **Language**: Python 3.9+
 - **Bot Framework**: python-telegram-bot==20.8
-- **AI Services**: OpenAI Whisper API (speech-to-text), GPT-4o-mini (text processing)
-- **Database**: SQLite (development), PostgreSQL (production consideration)
+- **Web Framework**: FastAPI + uvicorn for webhook handling
+- **AI Services**: OpenAI Whisper API (speech-to-text only)
+- **Database**: SQLite with async support (aiosqlite)
 - **Audio Processing**: FFmpeg for OGG to MP3 conversion
-- **Hosting**: Digital Ocean Droplet with PM2/systemd
+- **Hosting**: Production server with systemd + nginx reverse proxy
 
 ## Core Architecture
 
-The bot implements a voice-first conversational flow:
+The bot implements a simplified voice-first conversational flow:
 
-1. **Voice Processing Pipeline**: OGG download → FFmpeg conversion → Whisper transcription → GPT text cleaning
+1. **Voice Processing Pipeline**: OGG download → FFmpeg conversion → Whisper transcription → Direct storage
 2. **State Machine**: Multi-step conversation flow with progress tracking
-3. **Document Generation**: Structured retrospective templates in markdown format
+3. **Document Generation**: Raw text storage with markdown templates
+4. **Authentic Voice Preservation**: No AI processing, preserves user's natural language
 
 ## Key Requirements
 
@@ -31,11 +33,10 @@ The bot implements a voice-first conversational flow:
 
 ### Environment Variables
 - `BOT_TOKEN`: Telegram bot token (configured in .env)
-- `OPENAI_API_KEY`: OpenAI API key for Whisper and GPT services
+- `OPENAI_API_KEY`: OpenAI API key for Whisper transcription
+- `TELEGRAM_WEBHOOK_URL`: Production webhook URL for Telegram integration
 
-## Development Commands (When Implemented)
-
-Since no code exists yet, these are the planned commands based on the technical specification:
+## Development Commands
 
 ```bash
 # Local development setup
@@ -47,8 +48,11 @@ pip install -r requirements.txt
 # macOS: brew install ffmpeg
 # Ubuntu: sudo apt-get install ffmpeg
 
-# Run the bot
-python bot.py
+# Run the bot locally (polling mode)
+python local_bot.py
+
+# Run the bot in production (webhook mode)
+python main.py
 
 # Testing (planned)
 python -m pytest tests/
@@ -61,15 +65,14 @@ python -m pytest tests/integration/
 1. **Download**: Receive OGG voice message from Telegram
 2. **Convert**: Async OGG → MP3 conversion with FFmpeg subprocess
 3. **Transcribe**: Send MP3 to Whisper API for Russian language transcription
-4. **Clean**: Process raw transcription with GPT-4o-mini to fix grammar/structure
-5. **Store**: Save to conversation state for multi-step flow
-6. **Cleanup**: Delete temporary files with proper error handling
+4. **Store**: Save raw transcription directly to database (preserves authentic voice)
+5. **Cleanup**: Delete temporary files with proper error handling
 
-### Data Models (Planned)
+### Data Models
 ```python
 User: telegram_id, username, created_at, timezone
-Retro: user_id, date, energy_level, mood, wins, learnings, next_actions, mits, experiment
-ConversationState: user_id, current_question, temp_data, updated_at
+Retro: user_id, date, energy_level, mood, wins_text, learnings_text, next_actions_text, mits_text, experiment_text
+ConversationState: user_id, current_step, retro_id, updated_at
 ```
 
 ### Performance Targets
@@ -92,21 +95,27 @@ ConversationState: user_id, current_question, temp_data, updated_at
 - **Webhook verification**: Telegram signature validation
 - **Data retention**: 90-day limit with /deletedata command
 
-## Implementation Phases
+## Implementation Status
 
-1. **Phase 1**: Core voice pipeline with basic bot setup
-2. **Phase 2**: Multi-step conversation state management
-3. **Phase 3**: Document generation and error handling polish
+✅ **Completed**: All phases implemented with simplified architecture
+- Core voice processing pipeline (Whisper only)
+- Multi-step conversation state management
+- Raw text storage with authentic voice preservation
+- Markdown document generation
+- Production deployment configuration
 
-## Key Files to Create
+## Key Files
 
-When implementation begins, the main files will be:
-- `bot.py`: Main bot application and webhook handling
-- `voice_processor.py`: FFmpeg and Whisper integration
-- `conversation_manager.py`: State machine for retro flow
-- `models.py`: Database models and data access
+- `main.py`: Production FastAPI application with webhook handling
+- `local_bot.py`: Local development bot with polling
+- `services/voice_processor.py`: FFmpeg and Whisper integration
+- `services/conversation_manager.py`: State machine for retro flow
+- `models/`: Database models and data access layer
 - `requirements.txt`: Python dependencies
 - `config.py`: Configuration and environment management
+- `.env.production`: Production environment variables
+- `voice-retro.service`: Systemd service configuration
+- `nginx-voice-retro.conf`: Nginx reverse proxy configuration
 
 ## Russian Language Support
 
