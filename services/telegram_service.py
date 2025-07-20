@@ -152,6 +152,7 @@ class TelegramService:
         message = update.message
         text = message.text.strip()
         chat_id = message.chat_id
+        user_id = message.from_user.id
         
         if text.startswith('/start'):
             await self._handle_start_command(update)
@@ -194,16 +195,16 @@ class TelegramService:
         # Send initial processing message
         processing_msg = await self.send_message_with_retry(
             chat_id=chat_id,
-            text="🎤 Обрабатываю голосовое сообщение..."
+            text="🎤 Ваше голосовое сообщение обрабатывается..."
         )
         
         try:
-            # Process voice message
+            # Process voice message (without progress updates)
             result = await voice_processor.process_telegram_voice(
                 bot=self.bot,
                 file_id=voice.file_id,
                 chat_id=chat_id,
-                progress_message_id=processing_msg,
+                progress_message_id=None,
                 language="ru"
             )
             
@@ -220,12 +221,21 @@ class TelegramService:
                 
                 # Integrate with conversation flow
                 if self.conversation_manager:
-                    # Don't send transcription result, let conversation manager handle it
+                    logger.info(
+                        "Passing transcribed text to conversation manager",
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        transcribed_text=result.transcribed_text[:100] + "..." if len(result.transcribed_text) > 100 else result.transcribed_text
+                    )
+                    
+                    # Pass the already-transcribed text to avoid duplicate processing
                     await self.conversation_manager.handle_user_response(
                         user_id=user_id,
                         chat_id=chat_id,
-                        voice_file_id=voice.file_id
+                        message_text=result.transcribed_text
                     )
+                    
+                    logger.info("Conversation manager processing completed", user_id=user_id)
                 else:
                     # Fallback: just show transcription
                     await self.send_message_with_retry(
@@ -259,32 +269,6 @@ class TelegramService:
         # Add transcribed text
         lines.append("📝 **Расшифровка:**")
         lines.append(f"_{result.transcribed_text}_")
-        lines.append("")
-        
-        # Add metadata
-        metadata_lines = []
-        
-        if result.original_language:
-            lang_name = {"ru": "Русский", "en": "English"}.get(
-                result.original_language, result.original_language
-            )
-            metadata_lines.append(f"🌐 Язык: {lang_name}")
-        
-        if result.processing_time:
-            metadata_lines.append(f"⏱️ Время обработки: {result.processing_time:.1f}с")
-        
-        if result.metadata.get("duration"):
-            metadata_lines.append(f"🎵 Длительность: {result.metadata['duration']:.1f}с")
-        
-        if result.metadata.get("fallback_used"):
-            metadata_lines.append("🔄 Использован резервный язык")
-        
-        if result.metadata.get("auto_detected"):
-            metadata_lines.append("🤖 Автоопределение языка")
-        
-        if metadata_lines:
-            lines.append("ℹ️ **Информация:**")
-            lines.extend(metadata_lines)
         
         return "\n".join(lines)
     

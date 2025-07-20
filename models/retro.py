@@ -137,6 +137,12 @@ class Retro(Base):
         
         # Header
         lines.append(f"# Daily Retro - {self.date}")
+        
+        # Add status indicator for incomplete retrospectives
+        if not self.completed_at:
+            lines.append("")
+            lines.append("⚠️ *This retrospective is incomplete. Some sections are missing.*")
+        
         lines.append("")
         
         # Energy and mood
@@ -165,6 +171,11 @@ class Retro(Base):
                 for item in items:
                     lines.append(f"- {item}")
                 lines.append("")
+            elif not self.completed_at:
+                # Show missing sections for incomplete retrospectives
+                lines.append(f"## {title}")
+                lines.append("*⏳ Not answered yet*")
+                lines.append("")
         
         # Experiment
         if self.experiment:
@@ -174,6 +185,10 @@ class Retro(Base):
                     lines.append(f"**{key}:** {value}")
             else:
                 lines.append(str(self.experiment))
+            lines.append("")
+        elif not self.completed_at:
+            lines.append("## 🧪 Experiment")
+            lines.append("*⏳ Not answered yet*")
             lines.append("")
         
         # Footer

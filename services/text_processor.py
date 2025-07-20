@@ -1,13 +1,13 @@
 """Text processing service that orchestrates GPT-based text analysis and cleaning."""
 
 from __future__ import annotations
-import asyncio
-from typing import Dict, Any, Optional, List
+import time
+from typing import Dict, Any, Optional
 from enum import Enum
 
 import structlog
 
-from services.gpt_service import gpt_service, GPTProcessingError
+from services.gpt_service import gpt_service
 from utils.prompt_templates import PromptType
 from utils.progress_tracker import ProgressTracker, ProcessingStep
 
@@ -76,74 +76,6 @@ class TextProcessor:
             RetroFieldType.EXPERIMENT: PromptType.EXPERIMENT_PROCESSING
         }
     
-    async def clean_transcribed_text(
-        self,
-        raw_text: str,
-        progress_tracker: Optional[ProgressTracker] = None
-    ) -> TextProcessingResult:
-        """
-        Clean transcribed text from speech recognition.
-        
-        Args:
-            raw_text: Raw transcribed text
-            progress_tracker: Optional progress tracker
-            
-        Returns:
-            TextProcessingResult with cleaned text
-        """
-        import time
-        start_time = time.time()
-        
-        if not raw_text or not raw_text.strip():
-            return TextProcessingResult(
-                success=False,
-                error_message="Empty input text"
-            )
-        
-        try:
-            if progress_tracker:
-                await progress_tracker.start_step(
-                    ProcessingStep.CLEANING,
-                    "Cleaning transcribed text..."
-                )
-            
-            cleaned_text = await gpt_service.clean_transcribed_text(raw_text)
-            processing_time = time.time() - start_time
-            
-            if progress_tracker:
-                await progress_tracker.complete_step(
-                    ProcessingStep.CLEANING,
-                    f"Text cleaned ({len(cleaned_text)} chars)"
-                )
-            
-            logger.info(
-                "Text cleaning completed",
-                original_length=len(raw_text),
-                cleaned_length=len(cleaned_text),
-                processing_time=processing_time
-            )
-            
-            return TextProcessingResult(
-                success=True,
-                cleaned_text=cleaned_text,
-                original_text=raw_text,
-                processing_time=processing_time
-            )
-            
-        except Exception as e:
-            error_msg = f"Text cleaning failed: {str(e)}"
-            logger.error("Text cleaning error", error=str(e))
-            
-            if progress_tracker:
-                await progress_tracker.fail_step(error_msg)
-            
-            return TextProcessingResult(
-                success=False,
-                original_text=raw_text,
-                error_message=error_msg,
-                processing_time=time.time() - start_time
-            )
-    
     async def process_retro_field(
         self,
         field_type: RetroFieldType,
@@ -161,7 +93,6 @@ class TextProcessor:
         Returns:
             TextProcessingResult with processed data
         """
-        import time
         start_time = time.time()
         
         if not user_input or not user_input.strip():
@@ -171,6 +102,8 @@ class TextProcessor:
             )
         
         try:
+            logger.info("Starting retro field processing", field_type=field_type, input_length=len(user_input))
+            
             if progress_tracker:
                 await progress_tracker.start_step(
                     ProcessingStep.CLEANING,
@@ -212,10 +145,11 @@ class TextProcessor:
                 )
             
             logger.info(
-                "Retro field processed",
+                "Retro field processed successfully",
                 field_type=field_type,
                 input_length=len(user_input),
-                processing_time=processing_time
+                processing_time=processing_time,
+                result_keys=list(processed_data.keys())
             )
             
             return TextProcessingResult(
@@ -254,7 +188,6 @@ class TextProcessor:
         Returns:
             TextProcessingResult with all processed data
         """
-        import time
         start_time = time.time()
         
         if not retro_responses:
@@ -328,48 +261,6 @@ class TextProcessor:
                 error_message=error_msg,
                 processing_time=time.time() - start_time
             )
-    
-    async def clean_and_process(
-        self,
-        raw_text: str,
-        field_type: RetroFieldType,
-        progress_tracker: Optional[ProgressTracker] = None
-    ) -> TextProcessingResult:
-        """
-        Clean transcribed text and then process it for specific field.
-        
-        Args:
-            raw_text: Raw transcribed text
-            field_type: Type of retro field to process
-            progress_tracker: Optional progress tracker
-            
-        Returns:
-            TextProcessingResult with cleaned and processed data
-        """
-        # First clean the text
-        clean_result = await self.clean_transcribed_text(raw_text, progress_tracker)
-        
-        if not clean_result.success:
-            return clean_result
-        
-        # Then process the cleaned text
-        process_result = await self.process_retro_field(
-            field_type, 
-            clean_result.cleaned_text, 
-            progress_tracker
-        )
-        
-        # Combine results
-        return TextProcessingResult(
-            success=process_result.success,
-            processed_data=process_result.processed_data,
-            cleaned_text=clean_result.cleaned_text,
-            original_text=raw_text,
-            processing_time=clean_result.processing_time + process_result.processing_time,
-            tokens_used=process_result.tokens_used,
-            estimated_cost=process_result.estimated_cost,
-            error_message=process_result.error_message
-        )
     
     async def validate_processing_result(
         self,
@@ -447,14 +338,18 @@ class TextProcessor:
         ]:
             list_key = f"{field_type.value}_list"
             items = result.processed_data.get(list_key, [])
-            return f"📝 {field_type.value.title()}: {len(items)} элементов"
+            # Escape underscores for markdown
+            field_name = field_type.value.replace("_", "\\_").title()
+            return f"📝 {field_name}: {len(items)} элементов"
         
         elif field_type == RetroFieldType.EXPERIMENT:
             experiment_data = result.processed_data.get("experiment_data", {})
             has_experiment = bool(experiment_data.get("experiment"))
             return f"🧪 Эксперимент: {'да' if has_experiment else 'нет'}"
         
-        return f"✅ {field_type.value.title()}: обработано"
+        # Escape underscores for markdown in general case
+        field_name = field_type.value.replace("_", "\\_").title()
+        return f"✅ {field_name}: обработано"
 
 
 # Global text processor instance

@@ -3,7 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, List
 
 import structlog
 from openai import AsyncOpenAI
@@ -143,25 +143,6 @@ class GPTService:
             logger.error("GPT processing failed", error=str(e), exc_info=True)
             raise GPTProcessingError(f"Processing failed: {str(e)}")
     
-    async def clean_transcribed_text(self, raw_text: str) -> str:
-        """
-        Clean transcribed text from speech recognition.
-        
-        Args:
-            raw_text: Raw transcribed text to clean
-            
-        Returns:
-            Cleaned text
-        """
-        if not raw_text or not raw_text.strip():
-            return ""
-        
-        result = await self.process_text(
-            prompt_type=PromptType.TEXT_CLEANING,
-            user_input=raw_text
-        )
-        
-        return result["content"]
     
     async def extract_energy_level(self, user_input: str) -> Dict[str, Any]:
         """
@@ -228,17 +209,24 @@ class GPTService:
             user_input=user_input
         )
         
+        logger.info("GPT list extraction result", prompt_type=prompt_type, user_input_length=len(user_input), 
+                   response_content=result["content"][:200] + "..." if len(result["content"]) > 200 else result["content"])
+        
         try:
             parsed = json.loads(result["content"])
             if isinstance(parsed, list):
-                return [item.strip() for item in parsed if item.strip()]
+                items = [item.strip() for item in parsed if item.strip()]
+                logger.info("Successfully parsed list", prompt_type=prompt_type, item_count=len(items))
+                return items
             else:
-                logger.warning("Expected list response", response=result["content"])
+                logger.warning("Expected list response", prompt_type=prompt_type, response=result["content"])
                 return []
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse list response", response=result["content"])
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse list response", prompt_type=prompt_type, response=result["content"], error=str(e))
             # Fallback: split by lines/bullets
-            return self._fallback_list_extraction(result["content"])
+            fallback_items = self._fallback_list_extraction(result["content"])
+            logger.info("Using fallback extraction", prompt_type=prompt_type, item_count=len(fallback_items))
+            return fallback_items
     
     async def extract_experiment(self, user_input: str) -> Dict[str, Any]:
         """

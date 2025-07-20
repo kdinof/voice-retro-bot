@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Optional, AsyncContextManager
@@ -152,7 +153,6 @@ class TempFileManager:
         Returns:
             Number of files cleaned up
         """
-        import time
         
         current_time = time.time()
         max_age_seconds = max_age_hours * 3600

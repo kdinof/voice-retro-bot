@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -83,22 +84,25 @@ class VoiceProcessor:
         Returns:
             VoiceProcessingResult with transcription and metadata
         """
-        import time
         start_time = time.time()
         
-        # Create progress tracker
-        progress = TelegramProgressTracker(
-            bot=bot,
-            chat_id=chat_id,
-            message_id=progress_message_id
-        )
+        # Create progress tracker only if message_id provided
+        if progress_message_id:
+            progress = TelegramProgressTracker(
+                bot=bot,
+                chat_id=chat_id,
+                message_id=progress_message_id
+            )
+        else:
+            progress = None
         
         try:
             # Step 1: Download voice file
-            await progress.start_step(
-                ProcessingStep.DOWNLOADING,
-                "Загружаю голосовое сообщение..."
-            )
+            if progress:
+                await progress.start_step(
+                    ProcessingStep.DOWNLOADING,
+                    "Загружаю голосовое сообщение..."
+                )
             
             async with file_manager.telegram_file_context(
                 bot, file_id, ".ogg"
@@ -106,16 +110,18 @@ class VoiceProcessor:
                 
                 file_size = ogg_file_path.stat().st_size
                 
-                await progress.complete_step(
-                    ProcessingStep.DOWNLOADING,
-                    f"Файл загружен ({file_size} байт)"
-                )
+                if progress:
+                    await progress.complete_step(
+                        ProcessingStep.DOWNLOADING,
+                        f"Файл загружен ({file_size} байт)"
+                    )
                 
                 # Step 2: Validate audio file
-                await progress.start_step(
-                    ProcessingStep.VALIDATING,
-                    "Проверяю аудиофайл..."
-                )
+                if progress:
+                    await progress.start_step(
+                        ProcessingStep.VALIDATING,
+                        "Проверяю аудиофайл..."
+                    )
                 
                 is_valid = await audio_converter.validate_audio_file(ogg_file_path)
                 if not is_valid:
@@ -124,16 +130,18 @@ class VoiceProcessor:
                 # Get audio duration for metadata
                 duration = await audio_converter.get_audio_duration(ogg_file_path)
                 
-                await progress.complete_step(
-                    ProcessingStep.VALIDATING,
-                    f"Аудиофайл корректен ({duration:.1f}с)" if duration else "Аудиофайл корректен"
-                )
+                if progress:
+                    await progress.complete_step(
+                        ProcessingStep.VALIDATING,
+                        f"Аудиофайл корректен ({duration:.1f}с)" if duration else "Аудиофайл корректен"
+                    )
                 
                 # Step 3: Convert to MP3
-                await progress.start_step(
-                    ProcessingStep.CONVERTING,
-                    "Конвертирую аудио в MP3..."
-                )
+                if progress:
+                    await progress.start_step(
+                        ProcessingStep.CONVERTING,
+                        "Конвертирую аудио в MP3..."
+                    )
                 
                 async with file_manager.temp_file_context(
                     suffix=".mp3", prefix="converted_"
@@ -143,16 +151,18 @@ class VoiceProcessor:
                         ogg_file_path, mp3_file_path
                     )
                     
-                    await progress.complete_step(
-                        ProcessingStep.CONVERTING,
-                        "Аудио конвертировано в MP3"
-                    )
+                    if progress:
+                        await progress.complete_step(
+                            ProcessingStep.CONVERTING,
+                            "Аудио конвертировано в MP3"
+                        )
                     
                     # Step 4: Transcribe with Whisper
-                    await progress.start_step(
-                        ProcessingStep.TRANSCRIBING,
-                        "Расшифровываю речь с помощью Whisper..."
-                    )
+                    if progress:
+                        await progress.start_step(
+                            ProcessingStep.TRANSCRIBING,
+                            "Расшифровываю речь с помощью Whisper..."
+                        )
                     
                     transcription_result = await whisper_service.transcribe_with_fallback(
                         mp3_path,
@@ -168,42 +178,23 @@ class VoiceProcessor:
                     if not is_valid_transcription:
                         logger.warning("Low quality transcription detected")
                     
-                    await progress.complete_step(
-                        ProcessingStep.TRANSCRIBING,
-                        f"Речь расшифрована ({len(transcription_result['text'])} символов)"
-                    )
-                    
-                    # Step 5: Clean text with GPT
-                    await progress.start_step(
-                        ProcessingStep.CLEANING,
-                        "Очищаю и структурирую текст..."
-                    )
-                    
-                    # Clean the transcribed text using GPT
-                    text_cleaning_result = await text_processor.clean_transcribed_text(
-                        transcription_result["text"],
-                        progress
-                    )
-                    
-                    if text_cleaning_result.success:
-                        final_text = text_cleaning_result.cleaned_text
+                    if progress:
                         await progress.complete_step(
-                            ProcessingStep.CLEANING,
-                            f"Текст очищен ({len(final_text)} символов)"
+                            ProcessingStep.TRANSCRIBING,
+                            f"Речь расшифрована ({len(transcription_result['text'])} символов)"
                         )
-                    else:
-                        # Use original text if cleaning fails
-                        final_text = transcription_result["text"]
-                        logger.warning("Text cleaning failed, using original", 
-                                     error=text_cleaning_result.error_message)
+                    
+                    # Step 5: Use raw transcription (no processing needed)
+                    final_text = transcription_result["text"]
                     
                     # Step 6: Processing completed
                     processing_time = time.time() - start_time
                     
-                    await progress.complete_step(
-                        ProcessingStep.COMPLETED,
-                        f"Обработка завершена за {processing_time:.1f}с"
-                    )
+                    if progress:
+                        await progress.complete_step(
+                            ProcessingStep.COMPLETED,
+                            f"Обработка завершена за {processing_time:.1f}с"
+                        )
                     
                     # Create result
                     result = VoiceProcessingResult(
@@ -219,9 +210,9 @@ class VoiceProcessor:
                             "auto_detected": transcription_result.get("auto_detected", False),
                             "quality_valid": is_valid_transcription,
                             "raw_transcription": transcription_result["text"],
-                            "text_cleaned": text_cleaning_result.success if text_cleaning_result else False,
-                            "gpt_tokens_used": text_cleaning_result.tokens_used if text_cleaning_result and text_cleaning_result.success else 0,
-                            "gpt_cost": text_cleaning_result.estimated_cost if text_cleaning_result and text_cleaning_result.success else 0.0
+                            "text_cleaned": False,
+                            "gpt_tokens_used": 0,
+                            "gpt_cost": 0.0
                         }
                     )
                     
@@ -237,7 +228,8 @@ class VoiceProcessor:
         
         except asyncio.TimeoutError:
             error_msg = "Превышено время обработки"
-            await progress.fail_step(error_msg)
+            if progress:
+                await progress.fail_step(error_msg)
             
             return VoiceProcessingResult(
                 success=False,
@@ -247,7 +239,8 @@ class VoiceProcessor:
         
         except (AudioConversionError, WhisperTranscriptionError, VoiceProcessingError) as e:
             error_msg = f"Ошибка обработки: {str(e)}"
-            await progress.fail_step(error_msg)
+            if progress:
+                await progress.fail_step(error_msg)
             
             logger.error("Voice processing failed", error=str(e), file_id=file_id)
             
@@ -259,7 +252,8 @@ class VoiceProcessor:
         
         except Exception as e:
             error_msg = "Внутренняя ошибка сервера"
-            await progress.fail_step(error_msg)
+            if progress:
+                await progress.fail_step(error_msg)
             
             logger.error(
                 "Unexpected error during voice processing",
@@ -291,7 +285,6 @@ class VoiceProcessor:
         Returns:
             VoiceProcessingResult with transcription and metadata
         """
-        import time
         start_time = time.time()
         
         file_path = Path(file_path)

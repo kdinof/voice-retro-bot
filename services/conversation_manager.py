@@ -203,13 +203,16 @@ class ConversationManager:
                 
                 # Get user input (voice or text)
                 if voice_file_id:
+                    logger.info("Processing voice file input", user_id=user_id, voice_file_id=voice_file_id)
                     user_input = await self._process_voice_input(voice_file_id, chat_id)
                     if not user_input:
                         return False
                 else:
                     user_input = message_text.strip()
+                    logger.info("Processing text input", user_id=user_id, text_length=len(user_input), text_preview=user_input[:50] + "..." if len(user_input) > 50 else user_input)
                 
                 if not user_input:
+                    logger.warning("Empty user input received", user_id=user_id, message_text=message_text, voice_file_id=voice_file_id)
                     await self.telegram.send_message_with_retry(
                         chat_id=chat_id,
                         text="🤔 Не могу обработать пустой ответ. Попробуй еще раз!"
@@ -217,6 +220,7 @@ class ConversationManager:
                     return False
                 
                 # Process response for current step
+                logger.info("Processing step response", user_id=user_id, step=state.current_step, input_length=len(user_input))
                 await self._process_step_response(user_id, chat_id, state, user_input)
                 
                 return True
@@ -377,10 +381,16 @@ class ConversationManager:
             field_type = step_config["field_type"]
             
             # Process input with GPT
+            logger.info("Processing retro field", user_id=user_id, field_type=field_type, input_preview=user_input[:100] + "..." if len(user_input) > 100 else user_input)
+            
             processing_result = await text_processor.process_retro_field(
                 field_type=field_type,
                 user_input=user_input
             )
+            
+            logger.info("Text processing result", user_id=user_id, success=processing_result.success, 
+                       error=processing_result.error_message if not processing_result.success else None,
+                       data_keys=list(processing_result.processed_data.keys()) if processing_result.success else None)
             
             if processing_result.success:
                 # Save processed data to retro
@@ -388,6 +398,8 @@ class ConversationManager:
                 
                 # Show confirmation
                 summary = text_processor.get_field_summary(processing_result, field_type)
+                logger.info("Generated field summary", user_id=user_id, field_type=field_type, summary=summary)
+                
                 await self.telegram.send_message_with_retry(
                     chat_id=chat_id,
                     text=f"✅ {summary}\n\n_Переходим к следующему шагу..._",
@@ -395,7 +407,7 @@ class ConversationManager:
                 )
                 
                 # Move to next step
-                await self._advance_conversation_step(user_id, chat_id, state)
+                await self._advance_conversation_step(user_id, chat_id, state, repos)
             
             else:
                 await self.telegram.send_message_with_retry(
@@ -406,6 +418,8 @@ class ConversationManager:
     
     async def _save_field_data(self, repos, retro_id: int, field_type: RetroFieldType, processed_data: Dict[str, Any]):
         """Save processed field data to retro."""
+        logger.info("Saving field data", retro_id=retro_id, field_type=field_type, data_keys=list(processed_data.keys()))
+        
         if field_type == RetroFieldType.ENERGY:
             energy_data = processed_data.get("energy_data", {})
             await repos.retros.update_retro_field(retro_id, "energy_level", energy_data.get("energy_level"))
@@ -438,28 +452,35 @@ class ConversationManager:
             await repos.retros.update_retro_field(retro_id, "experiment", experiment_data)
         
         await repos.commit()
+        logger.info("Committed retro field data to database", retro_id=retro_id, field_type=field_type)
     
-    async def _advance_conversation_step(self, user_id: int, chat_id: int, state: ConversationState):
+    async def _advance_conversation_step(self, user_id: int, chat_id: int, state: ConversationState, repos=None):
         """Advance to next conversation step."""
-        async for session in self.db.get_session():
-            repos = await self.db.get_repositories(session)
+        if repos is None:
+            async for session in self.db.get_session():
+                repos = await self.db.get_repositories(session)
+                await self._do_advance_step(user_id, chat_id, state, repos)
+        else:
+            await self._do_advance_step(user_id, chat_id, state, repos)
+    
+    async def _do_advance_step(self, user_id: int, chat_id: int, state: ConversationState, repos):
+        """Do the actual step advancement work."""
+        # Get next step
+        next_step = self._get_next_step(state.current_step)
+        
+        if next_step:
+            # Update conversation state
+            await repos.conversations.update_step(user_id, next_step)
+            await repos.commit()
             
-            # Get next step
-            next_step = self._get_next_step(state.current_step)
+            # Small delay before next question
+            await asyncio.sleep(1)
             
-            if next_step:
-                # Update conversation state
-                await repos.conversations.update_step(user_id, next_step)
-                await repos.commit()
-                
-                # Small delay before next question
-                await asyncio.sleep(1)
-                
-                # Ask next question
-                await self._ask_current_question(user_id, chat_id)
-            else:
-                # Conversation complete
-                await self._complete_retro(user_id, chat_id)
+            # Ask next question
+            await self._ask_current_question(user_id, chat_id)
+        else:
+            # Conversation complete
+            await self._complete_retro(user_id, chat_id)
     
     async def _show_retro_review(self, user_id: int, chat_id: int):
         """Show retro review before completion."""

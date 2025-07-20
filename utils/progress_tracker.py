@@ -19,7 +19,6 @@ class ProcessingStep(str, Enum):
     VALIDATING = "validating"
     CONVERTING = "converting"
     TRANSCRIBING = "transcribing"
-    CLEANING = "cleaning"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -166,7 +165,6 @@ class ProgressTracker:
             ProcessingStep.VALIDATING: "🔍",
             ProcessingStep.CONVERTING: "🔄",
             ProcessingStep.TRANSCRIBING: "🎤",
-            ProcessingStep.CLEANING: "✨",
             ProcessingStep.COMPLETED: "✅",
             ProcessingStep.FAILED: "❌"
         }
@@ -181,7 +179,6 @@ class ProgressTracker:
             ProcessingStep.VALIDATING: "Проверяю аудиофайл...",
             ProcessingStep.CONVERTING: "Конвертирую аудио...",
             ProcessingStep.TRANSCRIBING: "Расшифровываю речь...",
-            ProcessingStep.CLEANING: "Обрабатываю текст...",
             ProcessingStep.COMPLETED: "Готово!",
             ProcessingStep.FAILED: "Ошибка обработки"
         }
