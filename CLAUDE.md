@@ -106,18 +106,12 @@ ConversationState: user_id, current_step, retro_id, updated_at
 
 ## Key Files
 
-### Production (Polling Mode)
+### Production Deployment
 - `local_bot.py`: Production bot with polling mode
-- `deploy-polling.sh`: Simplified deployment script
+- `deploy.sh`: Simplified deployment script
 - `voice-retro.service`: Systemd service configuration
-- `.env.production`: Production environment variables (simplified)
-- `DEPLOYMENT-POLLING.md`: Polling deployment guide
-
-### Alternative (Webhook Mode - Not Used)
-- `main.py`: FastAPI application with webhook handling
-- `deploy.sh`: Full deployment script with nginx
-- `nginx-voice-retro.conf`: Nginx reverse proxy configuration
-- `DEPLOYMENT.md`: Webhook deployment guide
+- `.env.production`: Production environment variables
+- `DEPLOYMENT.md`: Complete deployment guide
 
 ### Core Application
 - `services/voice_processor.py`: FFmpeg and Whisper integration
