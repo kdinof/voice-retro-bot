@@ -96,10 +96,9 @@ class LocalBotApplication:
         """Start bot with polling."""
         logger.info("🎯 Starting bot with polling...")
         logger.info("📱 Bot: @voice_retro_bot")
-        logger.info("🔄 Mode: Polling (Local Testing)")
+        logger.info("🔄 Mode: Polling (Production)")
         logger.info("🗄️ Database: SQLite")
-        logger.info("🤖 AI: GPT-4o-mini")
-        logger.info("🎤 Voice: FFmpeg + Whisper")
+        logger.info("🎤 Voice: FFmpeg + Whisper (simplified)")
         logger.info("")
         logger.info("✅ Bot is ready! Send /start to @voice_retro_bot in Telegram")
         logger.info("Press Ctrl+C to stop")
@@ -136,10 +135,10 @@ class LocalBotApplication:
 async def main():
     """Main entry point."""
     try:
-        # Test configuration
+        # Test configuration (production-safe logging)
         logger.info("🔧 Testing configuration...")
-        logger.info(f"Bot token: {settings.bot_token[:10]}...")
-        logger.info(f"OpenAI key: {settings.openai_api_key[:10]}...")
+        logger.info(f"Bot token: {settings.bot_token[:10]}..." if settings.bot_token else "❌ Bot token missing")
+        logger.info(f"OpenAI key: {settings.openai_api_key[:10]}..." if settings.openai_api_key else "❌ OpenAI key missing")
         
         # Create and start bot
         bot_app = LocalBotApplication()

@@ -1,7 +1,7 @@
 [Unit]
-Description=Voice Retro Bot - Telegram Voice Retrospective Bot
-After=network.target
-Wants=network.target
+Description=Voice Retro Bot - Telegram Voice Retrospective Bot (Polling Mode)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -9,12 +9,16 @@ User=voice-retro
 Group=voice-retro
 WorkingDirectory=/opt/voice-retro
 Environment=PATH=/opt/voice-retro/venv/bin
-ExecStart=/opt/voice-retro/venv/bin/python main.py
+ExecStart=/opt/voice-retro/venv/bin/python local_bot.py
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
-RestartSec=3
+RestartSec=5
 KillMode=mixed
-TimeoutStopSec=5
+TimeoutStopSec=10
+
+# Polling-specific settings
+StartLimitInterval=60
+StartLimitBurst=3
 
 # Security settings
 NoNewPrivileges=true

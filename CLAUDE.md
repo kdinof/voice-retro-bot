@@ -14,7 +14,7 @@ This is a **Telegram Bot for Daily Retrospectives** that uses voice transcriptio
 - **AI Services**: OpenAI Whisper API (speech-to-text only)
 - **Database**: SQLite with async support (aiosqlite)
 - **Audio Processing**: FFmpeg for OGG to MP3 conversion
-- **Hosting**: Production server with systemd + nginx reverse proxy
+- **Hosting**: Production server with systemd service (polling mode)
 
 ## Core Architecture
 
@@ -106,16 +106,25 @@ ConversationState: user_id, current_step, retro_id, updated_at
 
 ## Key Files
 
-- `main.py`: Production FastAPI application with webhook handling
-- `local_bot.py`: Local development bot with polling
+### Production (Polling Mode)
+- `local_bot.py`: Production bot with polling mode
+- `deploy-polling.sh`: Simplified deployment script
+- `voice-retro.service`: Systemd service configuration
+- `.env.production`: Production environment variables (simplified)
+- `DEPLOYMENT-POLLING.md`: Polling deployment guide
+
+### Alternative (Webhook Mode - Not Used)
+- `main.py`: FastAPI application with webhook handling
+- `deploy.sh`: Full deployment script with nginx
+- `nginx-voice-retro.conf`: Nginx reverse proxy configuration
+- `DEPLOYMENT.md`: Webhook deployment guide
+
+### Core Application
 - `services/voice_processor.py`: FFmpeg and Whisper integration
 - `services/conversation_manager.py`: State machine for retro flow
 - `models/`: Database models and data access layer
 - `requirements.txt`: Python dependencies
 - `config.py`: Configuration and environment management
-- `.env.production`: Production environment variables
-- `voice-retro.service`: Systemd service configuration
-- `nginx-voice-retro.conf`: Nginx reverse proxy configuration
 
 ## Russian Language Support
 
