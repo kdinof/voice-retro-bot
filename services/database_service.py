@@ -10,6 +10,7 @@ from models.database import get_async_session, init_database, close_database
 from repositories.user_repository import UserRepository
 from repositories.retro_repository import RetroRepository
 from repositories.conversation_repository import ConversationRepository
+from repositories.todo_repository import ToDoRepository
 
 
 logger = structlog.get_logger()
@@ -60,6 +61,7 @@ class RepositoryManager:
         self._users: Optional[UserRepository] = None
         self._retros: Optional[RetroRepository] = None
         self._conversations: Optional[ConversationRepository] = None
+        self._todos: Optional[ToDoRepository] = None
     
     @property
     def users(self) -> UserRepository:
@@ -81,6 +83,13 @@ class RepositoryManager:
         if self._conversations is None:
             self._conversations = ConversationRepository(self.session)
         return self._conversations
+    
+    @property
+    def todos(self) -> ToDoRepository:
+        """Get todo repository."""
+        if self._todos is None:
+            self._todos = ToDoRepository(self.session)
+        return self._todos
     
     async def commit(self) -> None:
         """Commit the current transaction."""

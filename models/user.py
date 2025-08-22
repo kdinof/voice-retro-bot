@@ -84,6 +84,13 @@ class User(Base):
         uselist=False
     )
     
+    todos: Mapped[List["ToDo"]] = relationship(
+        "ToDo",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="ToDo.date.desc()"
+    )
+    
     def __repr__(self) -> str:
         return f"<User(telegram_id={self.telegram_id}, username='{self.username}')>"
     

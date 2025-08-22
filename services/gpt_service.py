@@ -373,6 +373,63 @@ class GPTService:
         
         return processed_results
     
+    async def generate_daily_todo(
+        self,
+        next_actions_text: str,
+        mits_text: str
+    ) -> Dict[str, Any]:
+        """
+        Generate daily todo lists from retro sections.
+        
+        Args:
+            next_actions_text: Text from Next Actions section
+            mits_text: Text from Tomorrow's MITs section
+            
+        Returns:
+            Dictionary with next_actions_todos and mits_todos lists
+        """
+        result = await self.process_text(
+            prompt_type=PromptType.TODO_GENERATION,
+            user_input="",  # Not used for this template
+            additional_context={
+                "next_actions_text": next_actions_text or "",
+                "mits_text": mits_text or ""
+            }
+        )
+        
+        try:
+            parsed = json.loads(result["content"])
+            return self._validate_todo_response(parsed)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("Failed to parse todo response", response=result["content"], error=str(e))
+            # Fallback: create empty lists
+            return {
+                "next_actions_todos": [],
+                "mits_todos": [],
+                "parse_error": True
+            }
+    
+    def _validate_todo_response(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate todo response format."""
+        next_actions_todos = parsed.get("next_actions_todos", [])
+        mits_todos = parsed.get("mits_todos", [])
+        
+        # Ensure they are lists
+        if not isinstance(next_actions_todos, list):
+            next_actions_todos = []
+        if not isinstance(mits_todos, list):
+            mits_todos = []
+        
+        # Clean up the lists (remove empty strings, limit MITs to 3)
+        next_actions_todos = [item.strip() for item in next_actions_todos if item and item.strip()]
+        mits_todos = [item.strip() for item in mits_todos[:3] if item and item.strip()]  # Limit to 3 MITs
+        
+        return {
+            "next_actions_todos": next_actions_todos,
+            "mits_todos": mits_todos,
+            "parse_error": False
+        }
+    
     async def get_usage_stats(self) -> Dict[str, Any]:
         """Get usage statistics (placeholder for future implementation)."""
         return {

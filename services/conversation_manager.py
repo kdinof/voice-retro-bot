@@ -13,6 +13,7 @@ from models.conversation_state import ConversationState, RetroStep
 from services.database_service import DatabaseService
 from services.voice_processor import voice_processor
 from services.telegram_service import TelegramService
+from services.todo_service import TodoService
 
 
 logger = structlog.get_logger()
@@ -40,6 +41,7 @@ class ConversationManager:
     def __init__(self, database_service: DatabaseService, telegram_service: TelegramService):
         self.db = database_service
         self.telegram = telegram_service
+        self.todo_service = TodoService(database_service, telegram_service)
         
         # Step configuration
         self.step_questions = {
@@ -145,12 +147,11 @@ class ConversationManager:
                 else:
                     retro = existing_retro
                 
-                # Create conversation state
+                # Create conversation state (expires at end of day)
                 await repos.conversations.create_or_update_state(
                     user_id=user_id,
                     step=RetroStep.ENERGY,
-                    retro_id=retro.id,
-                    timeout_minutes=30
+                    retro_id=retro.id
                 )
                 
                 await repos.commit()
@@ -582,6 +583,36 @@ class ConversationManager:
                     parse_mode="Markdown"
                 )
                 
+                # Generate and send todos from the completed retro
+                try:
+                    logger.info("Generating todos from completed retro", user_id=user_id, retro_id=retro.id)
+                    
+                    todo = await self.todo_service.generate_todos_from_retro(retro, save_to_db=True)
+                    
+                    if todo and todo.has_todos:
+                        # Send todo message
+                        await self.todo_service.send_todo_message(
+                            user_id=user_id,
+                            chat_id=chat_id,
+                            todo=todo,
+                            message_type="completion"
+                        )
+                        logger.info("Todos generated and sent", user_id=user_id, retro_id=retro.id, todo_id=todo.id)
+                    else:
+                        logger.info("No todos generated from retro", user_id=user_id, retro_id=retro.id)
+                
+                except Exception as e:
+                    # Don't let todo generation errors affect retro completion
+                    logger.error("Failed to generate or send todos", user_id=user_id, retro_id=retro.id, error=str(e))
+                    
+                    # Send a fallback message to user
+                    await self.telegram.send_message_with_retry(
+                        chat_id=chat_id,
+                        text="⚠️ Не удалось создать список дел из ретроспективы. "
+                             "Попробуйте позже или создайте список вручную.",
+                        parse_mode="Markdown"
+                    )
+                
                 logger.info("Completed retro", user_id=user_id, retro_id=retro.id)
     
     async def _handle_expired_conversation(self, user_id: int, chat_id: int):
@@ -594,7 +625,7 @@ class ConversationManager:
             
             await self.telegram.send_message_with_retry(
                 chat_id=chat_id,
-                text="⏰ Время ретроспективы истекло (30 минут бездействия).\n\n"
+                text="⏰ Время ретроспективы истекло (конец дня).\n\n"
                      "Начни новую ретроспективу с помощью /retro"
             )
     

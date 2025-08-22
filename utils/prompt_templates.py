@@ -20,6 +20,7 @@ class PromptType(str, Enum):
     ACTIONS_PROCESSING = "actions_processing"
     MITS_PROCESSING = "mits_processing"
     EXPERIMENT_PROCESSING = "experiment_processing"
+    TODO_GENERATION = "todo_generation"
 
 
 @dataclass
@@ -242,6 +243,45 @@ class PromptTemplateManager:
             description="Extract experiment from user response",
             max_tokens=300,
             temperature=0.3
+        )
+        
+        # Todo generation from retro
+        self.templates[PromptType.TODO_GENERATION] = PromptTemplate(
+            name="todo_generation",
+            system_prompt="""Ты ассистент для создания списка дел на основе завершенной ретроспективы.
+
+Проанализируй секции "Next Actions" и "Tomorrow's MITs" из ретроспективы и создай структурированный список дел.
+
+ВАЖНО:
+- Обрабатывай неформальную разговорную речь
+- Преобразуй общие фразы в конкретные задачи
+- "Работа" -> "Заниматься рабочими делами"
+- "Всякая всячина" -> "Выполнить текущие дела"
+- "Кроссфит" -> "Заняться кроссфитом"
+
+Создай ДВА отдельных списка:
+1. Из секции "Next Actions" - все запланированные дела
+2. Из секции "Tomorrow's MITs" - самые важные задачи (максимум 3)
+
+Верни ТОЛЬКО JSON в формате:
+{
+  "next_actions_todos": [
+    "Заниматься рабочими делами",
+    "Выполнить текущие дела",
+    "Встретиться с командой"
+  ],
+  "mits_todos": [
+    "Заняться кроссфитом", 
+    "Завершить важный проект",
+    "Провести встречу с клиентом"
+  ]
+}
+
+Если в какой-то секции нет дел, верни пустой массив [].""",
+            user_prompt_template="Создай списки дел из этой ретроспективы:\n\nNext Actions:\n{next_actions_text}\n\nTomorrow's MITs:\n{mits_text}",
+            description="Generate todo lists from retro sections",
+            max_tokens=400,
+            temperature=0.2
         )
         
         logger.info("Initialized prompt templates", count=len(self.templates))
